@@ -28,6 +28,10 @@ def create_app(db_path=None):
 
     app.add_template_filter(lambda v: f"{v:,}", "num")
 
+    from .core import epoch_to_iso
+
+    app.add_template_filter(epoch_to_iso, "isoutc")
+
     from .routes import bp
 
     app.register_blueprint(bp)

@@ -117,6 +117,85 @@
   <p>共 {{ result|length }} 段；<b>本次查询读取全局覆盖记录 {{ qstats.cov_read }} 条</b>。</p>
   {% endif %}
 </section>
+
+<section>
+  <h2>5. 最少观测日计划（补拍）</h2>
+  <p class="muted">输入半开相位区间 [起, 止) 与所需覆盖日数（1～2），从已有曝光日中选不超过 20 个候选日，
+     端点扫描求让每个相位至少由所填数量的<b>不同 UTC 日</b>覆盖的最少日期。计算只扫描区间端点，不随区间秒数增长。</p>
+  <form method="post" action="{{ url_for('main.plan_preview') }}">
+    <label>相位起点（整数秒，含）</label>
+    <input name="ph_start" size="16" required
+           value="{{ plan_preview.lo if plan_preview else '' }}">
+    <label>相位终点（整数秒，不含）</label>
+    <input name="ph_end" size="16" required
+           value="{{ plan_preview.hi if plan_preview else '' }}">
+    <label>所需覆盖日数（1～2）</label>
+    <input name="need_days" size="4" required value="{{ plan_preview.need_days if plan_preview else '1' }}">
+    <button type="submit">预览计划</button>
+  </form>
+
+  {% if plan_preview %}
+  <h3>预览结果（数据版本快照，尚未保存）</h3>
+  <p>目标区间 <span class="mono">[{{ plan_preview.lo|num }}, {{ plan_preview.hi|num }})</span>，
+     每相位需 {{ plan_preview.need_days }} 个不同 UTC 日覆盖；
+     候选日 {{ plan_preview.candidates|length }} 个（上限 20）；本次预览读取曝光记录 {{ plan_preview.exp_read }} 条。</p>
+  <p>候选日及版本：
+    {% for d in plan_preview.candidates %}
+      <span class="mono">{{ d }}<small>(v{{ plan_preview.versions[d] }})</small></span>{% if not loop.last %}、{% endif %}
+    {% else %}<span class="muted">无（请先上传曝光）</span>{% endfor %}
+  </p>
+  {% if plan_preview.solvable %}
+  <p><b>最少需 {{ plan_preview.chosen|length }} 日：</b>
+    {% for d in plan_preview.chosen %}<span class="mono">{{ d }}</span>{% if not loop.last %}、{% endif %}{% endfor %}
+  </p>
+  <table>
+    <tr><th>#</th><th>UTC 日</th><th>在目标区间内的贡献相位（半开，秒）</th><th>贡献总时长（秒）</th></tr>
+    {% for d in plan_preview.chosen %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td class="mono">{{ d }}</td>
+      <td>
+        {% for s, e in plan_preview.contributions[d] %}
+        <span class="mono">[{{ s|num }}, {{ e|num }})</span>
+        {% else %}<span class="muted">无</span>{% endfor %}
+      </td>
+      <td>{{ plan_preview.contributions[d]|sum(attribute=1) - plan_preview.contributions[d]|sum(attribute=0) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="{{ url_for('main.plan_confirm') }}"
+        onsubmit="return confirm('按当前预览所见的数据版本保存计划？预览后任一候选日被更正过将被拒绝。');">
+    <button type="submit">确认保存计划</button>
+  </form>
+  <p class="muted">确认时若任一候选日在预览后被更正过（即使改回原样），将拒绝保存并要求重新预览；
+     无解、过期或写入失败都不会改动旧计划。</p>
+  {% else %}
+  <p class="err"><b>无解：</b>现有候选日无法覆盖目标区间的全部相位至所需日数，请补充曝光或调整区间后重新预览。</p>
+  {% endif %}
+  {% endif %}
+
+  {% if saved_plan %}
+  <h3>当前已保存的计划</h3>
+  <p>目标区间 <span class="mono">[{{ saved_plan.lo|num }}, {{ saved_plan.hi|num }})</span>，
+     每相位需 {{ saved_plan.need_days }} 个不同 UTC 日；
+     选中 {{ saved_plan.chosen|length }} 日；保存于 {{ saved_plan.saved_at|isoutc }}</p>
+  <table>
+    <tr><th>#</th><th>UTC 日</th><th>保存时贡献相位（半开，秒）</th><th>贡献总时长（秒）</th></tr>
+    {% for d in saved_plan.chosen %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td class="mono">{{ d }}</td>
+      <td>
+        {% for s, e in saved_plan.contributions[d] %}
+        <span class="mono">[{{ s|num }}, {{ e|num }})</span>
+        {% else %}<span class="muted">无</span>{% endfor %}
+      </td>
+      <td>{{ saved_plan.contributions[d]|sum(attribute=1) - saved_plan.contributions[d]|sum(attribute=0) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</section>
 {% endif %}
 
 <section>
