@@ -1,0 +1,15 @@
+services:
+  web:
+    build: .
+    image: variable-star-planner
+    ports:
+      - "8000:8000"
+    environment:
+      STAR_DB: /data/star.db
+      SECRET_KEY: ${SECRET_KEY:-variable-star-dev-key}
+    volumes:
+      - star_data:/data
+    restart: unless-stopped
+
+volumes:
+  star_data:

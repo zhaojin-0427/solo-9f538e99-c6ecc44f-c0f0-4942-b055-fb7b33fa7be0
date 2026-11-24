@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>变星相位补拍计划</title>
+<style>
+  body{font-family:system-ui,-apple-system,sans-serif;max-width:980px;margin:1.5rem auto;padding:0 1rem;color:#222}
+  h1{font-size:1.4rem}
+  h2{font-size:1.1rem;border-bottom:1px solid #ccc;padding-bottom:.2rem}
+  table{border-collapse:collapse;margin:.5rem 0}
+  td,th{border:1px solid #bbb;padding:.25rem .6rem;font-size:.9rem;text-align:left}
+  .ok{background:#e6f6e6;border:1px solid #7c7;padding:.4rem .8rem}
+  .err{background:#fde8e8;border:1px solid #c77;padding:.4rem .8rem}
+  .mono{font-family:ui-monospace,SFMono-Regular,monospace}
+  label{display:block;margin:.4rem 0 .15rem}
+  input,textarea,button{font:inherit}
+  textarea{width:100%;box-sizing:border-box}
+  .muted{color:#666;font-size:.85rem}
+  section{margin-bottom:1.8rem}
+</style>
+</head>
+<body>
+<h1>变星相位补拍计划（单星）</h1>
+<p class="muted">相位区间均为半开秒区间 [起, 止)：含起点、不含终点。曝光与覆盖在同一事务生效；更正失败沿用原结果。</p>
+
+{% if message %}<p class="{{ kind }}">{{ message }}</p>{% endif %}
+
+<section>
+  <h2>1. 零相位与周期</h2>
+  {% if config %}
+  <p>零相位时刻 t0：<span class="mono">{{ config[0]|num }}</span> 秒（{{ config_iso }}）<br>
+     周期 P：<span class="mono">{{ config[1]|num }}</span> 秒</p>
+  <form method="post" action="{{ url_for('main.reset') }}"
+        onsubmit="return confirm('将清空全部曝光、覆盖与参数，确定？');">
+    <button type="submit">清空全部数据并重设</button>
+  </form>
+  {% else %}
+  <form method="post" action="{{ url_for('main.set_config') }}">
+    <label>零相位 UTC 整秒时刻 t0（整数秒，或 2026-11-23T00:00:00Z 形式）</label>
+    <input name="t0" size="34" required>
+    <label>周期 P（正整数秒）</label>
+    <input name="period" size="16" required>
+    <button type="submit">保存参数</button>
+  </form>
+  {% endif %}
+</section>
+
+{% if config %}
+<section>
+  <h2>2. 上传 / 整日替换 / 撤下当日曝光</h2>
+  <form method="post" action="{{ url_for('main.replace_day') }}">
+    <label>UTC 日</label>
+    <input type="date" name="day" required>
+    <label>CSV 文件（可选，选择后填入下方文本框）</label>
+    <input type="file" id="csvfile" accept=".csv,text/csv,text/plain">
+    <label>曝光 CSV：每行 <span class="mono">start,end</span>（当日整数秒或 HH:MM:SS；含起点、不含终点；空表 = 撤下当日曝光）</label>
+    <textarea name="csv" id="csv" rows="6" placeholder="start,end&#10;100,250&#10;01:00:00,01:05:00"></textarea>
+    <button type="submit">提交更正（整日替换）</button>
+  </form>
+  {% if correction %}
+  <h3>本次更正（{{ correction.day }}）</h3>
+  <ul>
+    <li>当日曝光条数：{{ correction.exposures }}{% if correction.exposures == 0 %}（空表，已撤下）{% endif %}</li>
+    <li>受影响相位区域：
+      {% if correction.affected %}
+        {% for a, b in correction.affected %}<span class="mono">[{{ a|num }}, {{ b|num }})</span> {% endfor %}
+      {% else %}无（相位集未变）{% endif %}
+    </li>
+    <li>读取全局覆盖记录：{{ correction.cov_read }} 条</li>
+    <li><b>写入全局覆盖记录：{{ correction.cov_written }} 条</b>（删除 {{ correction.cov_deleted }} + 插入 {{ correction.cov_inserted }}）</li>
+  </ul>
+  {% endif %}
+</section>
+
+<section>
+  <h2>3. 已上传的曝光日</h2>
+  {% if days %}
+  <table>
+    <tr><th>UTC 日</th><th>曝光条数</th><th>总时长（秒）</th></tr>
+    {% for d in days %}
+    <tr><td class="mono">{{ d["day"] }}</td><td>{{ d["n"] }}</td><td>{{ d["total"]|num }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">暂无曝光。</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>4. 查询覆盖不足两日的相位</h2>
+  <form method="post" action="{{ url_for('main.query') }}">
+    <label>临时排除日 1（可选）</label>
+    <input type="date" name="excl1">
+    <label>临时排除日 2（可选）</label>
+    <input type="date" name="excl2">
+    <button type="submit">查询</button>
+  </form>
+  {% if result is not none %}
+  <h3>覆盖不足两日的相位（半开区间，单位：秒）</h3>
+  {% if excl %}<p>已临时排除：{{ excl|join("、") }}（不影响已存数据）</p>{% endif %}
+  {% if result %}
+  <table>
+    <tr><th>#</th><th>相位区间 [起, 止)</th><th>长度（秒）</th><th>占周期</th></tr>
+    {% for s, e in result %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td class="mono">[{{ s|num }}, {{ e|num }})</td>
+      <td>{{ (e - s)|num }}</td>
+      <td>{{ "%.6f"|format((e - s) / qstats.period * 100) }}%</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p>全部相位均已覆盖至少两日。</p>
+  {% endif %}
+  <p>共 {{ result|length }} 段；<b>本次查询读取全局覆盖记录 {{ qstats.cov_read }} 条</b>。</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section>
+  <h2>最近一次的记录数</h2>
+  {% if last_query %}
+  <p>最近一次查询：读取全局覆盖记录 {{ last_query.cov_read }} 条
+     {% if last_query.excl %}（排除 {{ last_query.excl|join("、") }}）{% endif %}</p>
+  {% endif %}
+  {% if last_correction %}
+  <p>最近一次更正（{{ last_correction.day }}）：写入全局覆盖记录 {{ last_correction.cov_written }} 条
+     （删除 {{ last_correction.cov_deleted }} + 插入 {{ last_correction.cov_inserted }}）</p>
+  {% endif %}
+  {% if not last_query and not last_correction %}<p class="muted">尚无查询或更正。</p>{% endif %}
+</section>
+
+<script>
+document.getElementById('csvfile').addEventListener('change', function () {
+  const f = this.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { document.getElementById('csv').value = r.result; };
+  r.readAsText(f);
+});
+</script>
+</body>
+</html>
